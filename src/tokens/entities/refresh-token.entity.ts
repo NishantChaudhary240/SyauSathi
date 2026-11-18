@@ -8,6 +8,7 @@ import {
 
 @Entity('refresh_tokens')
 @Index('idx_refresh_tokens_family_id', ['familyId'])
+@Index('idx_refresh_tokens_user_id', ['userId'])
 export class RefreshTokenEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

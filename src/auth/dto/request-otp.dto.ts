@@ -1,7 +1,13 @@
-import { IsNotEmpty, IsString } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsNotEmpty, IsString, Matches } from 'class-validator';
+import { normalizeDigits } from '../../common/phone-number.js';
 
 export class RequestOtpDto {
+  @Transform(({ value }) =>
+    typeof value === 'string' ? normalizeDigits(value).trim() : value,
+  )
   @IsString()
   @IsNotEmpty()
-  mobileNumber!: string;
+  @Matches(/^[+\d\s().-]{8,20}$/)
+  phoneNumber!: string;
 }

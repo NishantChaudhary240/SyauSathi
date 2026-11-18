@@ -14,6 +14,7 @@ describe('AuthController', () => {
           useValue: {
             rotateRefreshToken: vi.fn(),
             revokeRefreshToken: vi.fn(),
+            getCurrentFarmer: vi.fn(),
           },
         },
       ],

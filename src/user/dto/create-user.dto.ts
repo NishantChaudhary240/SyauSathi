@@ -1,7 +1,8 @@
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsNotEmpty, IsString, Matches } from 'class-validator';
 
 export class CreateUserDto {
   @IsString()
   @IsNotEmpty()
-  mobileNumber!: string;
+  @Matches(/^[+\d\s().-]{8,20}$/)
+  phoneNumber!: string;
 }

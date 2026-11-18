@@ -1,20 +1,34 @@
 import {
+  Column,
   CreateDateColumn,
   Entity,
+  Index,
   PrimaryGeneratedColumn,
-  Column,
 } from 'typeorm';
 
+export enum OtpPurpose {
+  REGISTER = 'REGISTER',
+  LOGIN = 'LOGIN',
+}
+
 @Entity('otp_challenges')
+@Index('idx_otp_challenges_phone_purpose_created', [
+  'phoneNumber',
+  'purpose',
+  'createdAt',
+])
 export class OtpChallengeEntity {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
   @Column({ type: 'varchar', length: 32 })
-  mobileNumber!: string;
+  phoneNumber!: string;
 
-  @Column({ type: 'varchar', length: 255 })
-  codeHash!: string;
+  @Column({ type: 'enum', enum: OtpPurpose, enumName: 'otp_purpose_enum' })
+  purpose!: OtpPurpose;
+
+  @Column({ type: 'varchar', length: 64 })
+  otpHash!: string;
 
   @Column({ type: 'timestamptz' })
   expiresAt!: Date;
@@ -23,7 +37,7 @@ export class OtpChallengeEntity {
   attemptCount!: number;
 
   @Column({ type: 'timestamptz', nullable: true })
-  verifiedAt!: Date | null;
+  usedAt!: Date | null;
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;

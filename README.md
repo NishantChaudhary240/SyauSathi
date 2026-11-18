@@ -1,132 +1,297 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Syau Sathi Backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+NestJS API using Fastify, PostgreSQL, TypeORM, and Vitest.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Feature modules
 
-## Description
+Farmer registration and login are separate feature modules:
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+- [`FarmerRegistrationModule`](./src/auth/farmer-registration/farmer-registration.module.ts)
+  owns registration OTP requests, verification, and farmer account creation.
+- [`FarmerLoginModule`](./src/auth/farmer-login/farmer-login.module.ts) owns
+  login OTP authentication.
+- [`AuthModule`](./src/auth/auth.module.ts) composes those modules and owns
+  refresh, logout, and the authenticated `/me` endpoint.
+- `OtpModule`, `TokenModule`, and `UserModule` provide shared OTP, token, and
+  farmer persistence capabilities.
 
-## Project setup
+## Local setup
 
-```bash
-$ npm install
+1. Install dependencies and prepare the local environment:
+
+   ```bash
+   npm install
+   cp .env.example .env
+   ```
+
+2. Set PostgreSQL connection values in `.env`, create the configured database,
+   and replace `JWT_ACCESS_SECRET` and `OTP_HASH_SECRET`
+   with separate random secrets. For example, run `openssl rand -base64 32`
+   twice.
+3. Apply the schema migration and start the API:
+
+   ```bash
+   npm run migration:run
+   npm run start:dev
+   ```
+
+4. In development, request an OTP and read it from the backend terminal. The
+   development provider refuses to run in production. Sparrow delivery remains
+   a provider stub until credentials and the API integration are available.
+
+The API listens on `http://localhost:3000/api/v1`. Phone numbers are validated
+as 10-digit Nepal mobile numbers (accepting both ASCII and Devanagari digits)
+and normalized to E.164 (`+977...`). OTP requests are limited to one per phone
+and flow every 60 seconds and five requests per hour. OTPs expire after five
+minutes and allow at most three verification attempts. Sessions use 15-minute
+JWT access tokens and 90-day rotating refresh tokens.
+
+TypeORM schema synchronization is disabled; use migrations to change the
+database. This migration may upgrade existing user data and is intentionally
+not reversible; restore a database backup to roll it back.
+The latest incremental migration also ensures the optional `treeCount` and
+`orchardType` profile columns exist, including when the original schema
+migration was already applied.
+
+## Authentication endpoints
+
+All responses use `{ "success": boolean, "message": string, "data": ... }`.
+Error responses have `data: null`. Tokens and phone numbers below are examples.
+
+### Register: request OTP
+
+`POST /api/v1/auth/farmer/register/send-otp`
+
+Request:
+
+```json
+{ "phoneNumber": "9812345678" }
 ```
 
-## Compile and run the project
+Response (`202 Accepted`):
 
-```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+```json
+{
+  "success": true,
+  "message": "OTP request accepted. Check your phone if the number is eligible.",
+  "data": null
+}
 ```
 
-## Run tests
+### Register: verify OTP
 
-```bash
-# unit tests
-$ npm run test
+`POST /api/v1/auth/farmer/register/verify-otp`
 
-# e2e tests
-$ npm run test:e2e
+Request:
 
-# test coverage
-$ npm run test:cov
+```json
+{ "phoneNumber": "9812345678", "otp": "123456" }
 ```
 
-## Deployment
+Response (`200 OK`):
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+```json
+{
+  "success": true,
+  "message": "Farmer registered successfully.",
+  "data": {
+    "accessToken": "<access-token>",
+    "refreshToken": "<refresh-token>",
+    "tokenType": "Bearer",
+    "expiresIn": 900,
+    "isProfileComplete": false,
+    "user": {
+      "id": "<uuid>",
+      "phoneNumber": "+9779812345678",
+      "role": "FARMER"
+    }
+  }
+}
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+### Login: request OTP
 
-## Observability
+`POST /api/v1/auth/farmer/login/send-otp`
 
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
+Request:
 
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
-
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
-
-To add it to this project, run this and approve the code it prints at [observe.nestjs.com/link](https://observe.nestjs.com/link) - signing up for free if you have no account:
-
-```bash
-$ npx @nestjs/observe link
+```json
+{ "phoneNumber": "+9779812345678" }
 ```
 
-It installs `@nestjs/observe`, wires it into `AppModule` and `main.ts`, and writes the app key and secret into `.env`, which every `nest start` script (`start`, `start:dev`, `start:debug`) then loads. In production, set `OBSERVE_APP_KEY` and `OBSERVE_APP_SECRET` in the environment instead.
+Response (`202 Accepted`) is the same generic response as registration OTP
+request, whether or not an active farmer account exists.
 
-Or do it by hand:
-
-```bash
-$ npm install @nestjs/observe
+```json
+{
+  "success": true,
+  "message": "OTP request accepted. Check your phone if the number is eligible.",
+  "data": null
+}
 ```
 
-Then follow the [setup guide](https://docs.nestjs.com/observability/sdk) - it takes a single import and an app key.
+### Login: verify OTP
 
-The free plan needs no payment details and covers 300,000 events a month. You can also browse the [live demo](https://www.observe-demo.nestjs.com/dashboard) first - the whole dashboard over a busy service's data, with nothing to install.
+`POST /api/v1/auth/farmer/login/verify-otp`
 
-## Resources
+Request:
 
-Check out a few resources that may come in handy when working with NestJS:
+```json
+{ "phoneNumber": "+9779812345678", "otp": "123456" }
+```
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observe](https://observe.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+Response (`200 OK`) has the same token and user shape as registration
+verification, with `isProfileComplete` reflecting the account. Invalid OTPs
+and unknown/inactive accounts return a generic `401 Unauthorized` response.
 
-## Support
+```json
+{
+  "success": true,
+  "message": "Farmer logged in successfully.",
+  "data": {
+    "accessToken": "<access-token>",
+    "refreshToken": "<refresh-token>",
+    "tokenType": "Bearer",
+    "expiresIn": 900,
+    "isProfileComplete": true,
+    "user": {
+      "id": "<uuid>",
+      "phoneNumber": "+9779812345678",
+      "role": "FARMER"
+    }
+  }
+}
+```
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+### Refresh tokens
 
-## Stay in touch
+`POST /api/v1/auth/refresh`
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+Request:
 
-## License
+```json
+{ "refreshToken": "<refresh-token>" }
+```
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+Response (`200 OK`):
+
+```json
+{
+  "success": true,
+  "message": "Tokens refreshed successfully.",
+  "data": {
+    "accessToken": "<new-access-token>",
+    "refreshToken": "<new-refresh-token>",
+    "tokenType": "Bearer",
+    "expiresIn": 900
+  }
+}
+```
+
+The submitted refresh token is revoked as part of rotation. Only a hash is
+stored in PostgreSQL.
+
+### Logout
+
+`POST /api/v1/auth/logout`
+
+Request:
+
+```json
+{ "refreshToken": "<refresh-token>" }
+```
+
+Response (`200 OK`):
+
+```json
+{ "success": true, "message": "Logged out successfully.", "data": null }
+```
+
+### Current farmer
+
+`GET /api/v1/auth/me`
+
+Send `Authorization: Bearer <access-token>`.
+
+Response (`200 OK`):
+
+```json
+{
+  "success": true,
+  "message": "Farmer profile retrieved successfully.",
+  "data": {
+    "user": {
+      "id": "<uuid>",
+      "phoneNumber": "+9779812345678",
+      "role": "FARMER",
+      "fullName": null,
+      "district": null,
+      "municipality": null,
+      "wardNumber": null,
+      "treeCount": null,
+      "orchardType": null,
+      "profilePhoto": null,
+      "isProfileComplete": false
+    }
+  }
+}
+```
+
+### Complete farmer profile
+
+`POST /api/v1/users/farmer/complete-profile`
+
+Send `Authorization: Bearer <access-token>`.
+
+Request (`district` is required; `fullName`, `municipality`, `wardNumber`, `treeCount`, `orchardType`, and `profilePhoto` are optional):
+
+```json
+{
+  "fullName": "डोल्मा गुरुङ",
+  "district": "मुस्ताङ",
+  "municipality": "घरपझोङ गाउँपालिका",
+  "wardNumber": 4,
+  "treeCount": 40,
+  "orchardType": "TRADITIONAL",
+  "profilePhoto": "https://example.com/profile.jpg"
+}
+```
+
+`orchardType` accepts `TRADITIONAL`, `HIGH_DENSITY`, or `BOTH`. `profilePhoto` is optional and must be an HTTPS URL.
+
+Response (`200 OK`):
+
+```json
+{
+  "success": true,
+  "message": "Farmer profile completed successfully.",
+  "data": {
+    "user": {
+      "id": "<uuid>",
+      "phoneNumber": "+9779812345678",
+      "role": "FARMER",
+      "fullName": "डोल्मा गुरुङ",
+      "district": "मुस्ताङ",
+      "municipality": "घरपझोङ गाउँपालिका",
+      "wardNumber": 4,
+      "treeCount": 40,
+      "orchardType": "TRADITIONAL",
+      "profilePhoto": "https://example.com/profile.jpg",
+      "isProfileComplete": true
+    }
+  }
+}
+```
+
+The server derives the profile owner from the access token. Client-provided
+role, status, or user ID fields are rejected.
+
+## Migrations and tests
+
+```bash
+npm run migration:show
+npm run migration:run
+npm test
+npm run test:e2e
+npm run build
+```

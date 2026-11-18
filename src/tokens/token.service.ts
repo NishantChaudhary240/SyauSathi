@@ -1,13 +1,14 @@
-import {
-  Injectable,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { IsNull, Repository } from 'typeorm';
+import { UserRole } from '../common/authorization/role.enum.js';
 import { UserEntity } from '../user/entities/user.entity.js';
 import { RefreshTokenEntity } from './entities/refresh-token.entity.js';
+
+const ACCESS_TOKEN_TTL_SECONDS = 900;
+const REFRESH_TOKEN_TTL_SECONDS = 90 * 24 * 60 * 60;
 
 export interface TokenPair {
   accessToken: string;
@@ -22,25 +23,11 @@ type RotationResult =
 
 @Injectable()
 export class TokenService {
-  private readonly accessTokenTtlSeconds: number;
-  private readonly refreshTokenTtlSeconds: number;
-
   constructor(
     private readonly jwtService: JwtService,
     @InjectRepository(RefreshTokenEntity)
     private readonly refreshTokenRepository: Repository<RefreshTokenEntity>,
-    @InjectRepository(UserEntity)
-    private readonly userRepository: Repository<UserEntity>,
-  ) {
-    this.accessTokenTtlSeconds = this.readPositiveInteger(
-      'JWT_ACCESS_TOKEN_TTL_SECONDS',
-      900,
-    );
-    this.refreshTokenTtlSeconds = this.readPositiveInteger(
-      'JWT_REFRESH_TOKEN_TTL_SECONDS',
-      2_592_000,
-    );
-  }
+  ) {}
 
   async issueTokens(user: Pick<UserEntity, 'id' | 'role'>): Promise<TokenPair> {
     const now = new Date();
@@ -89,7 +76,11 @@ export class TokenService {
         }
 
         const user = await users.findOne({
-          where: { id: currentToken.userId },
+          where: {
+            id: currentToken.userId,
+            role: UserRole.FARMER,
+            isActive: true,
+          },
         });
         if (!user) {
           currentToken.revokedAt = now;
@@ -134,20 +125,31 @@ export class TokenService {
     );
   }
 
+  async revokeAllUserTokens(
+    userId: string,
+    refreshTokens: Repository<RefreshTokenEntity> = this.refreshTokenRepository,
+    revokedAt: Date = new Date(),
+  ): Promise<void> {
+    await refreshTokens.update(
+      { userId, revokedAt: IsNull() },
+      { revokedAt },
+    );
+  }
+
   private async createTokenPair(
     user: Pick<UserEntity, 'id' | 'role'>,
     refreshToken: string,
   ): Promise<TokenPair> {
     const accessToken = await this.jwtService.signAsync(
       { sub: user.id, role: user.role },
-      { expiresIn: this.accessTokenTtlSeconds },
+      { expiresIn: ACCESS_TOKEN_TTL_SECONDS },
     );
 
     return {
       accessToken,
       refreshToken,
       tokenType: 'Bearer',
-      expiresIn: this.accessTokenTtlSeconds,
+      expiresIn: ACCESS_TOKEN_TTL_SECONDS,
     };
   }
 
@@ -156,7 +158,7 @@ export class TokenService {
   }
 
   private getRefreshTokenExpiry(now: Date): Date {
-    return new Date(now.getTime() + this.refreshTokenTtlSeconds * 1_000);
+    return new Date(now.getTime() + REFRESH_TOKEN_TTL_SECONDS * 1_000);
   }
 
   private hashToken(token: string): string {
@@ -172,19 +174,5 @@ export class TokenService {
       { familyId, revokedAt: IsNull() },
       { revokedAt },
     );
-  }
-
-  private readPositiveInteger(name: string, fallback: number): number {
-    const value = process.env[name];
-    if (value === undefined) {
-      return fallback;
-    }
-
-    const parsed = Number(value);
-    if (!Number.isSafeInteger(parsed) || parsed <= 0) {
-      throw new Error(`${name} must be a positive integer.`);
-    }
-
-    return parsed;
   }
 }

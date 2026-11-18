@@ -3,7 +3,6 @@ import { JwtService } from '@nestjs/jwt';
 import { createHash } from 'node:crypto';
 import { EntityManager, Repository } from 'typeorm';
 import { UserRole } from '../common/authorization/role.enum.js';
-import { UserEntity } from '../user/entities/user.entity.js';
 import { RefreshTokenEntity } from './entities/refresh-token.entity.js';
 import { TokenService } from './token.service.js';
 
@@ -11,6 +10,7 @@ describe('TokenService', () => {
   const user = {
     id: 'user-id',
     role: UserRole.FARMER,
+    isActive: true,
   };
   const jwtService = {
     signAsync: vi.fn().mockResolvedValue('signed-access-token'),
@@ -47,20 +47,23 @@ describe('TokenService', () => {
       createHash('sha256').update(result.refreshToken).digest('hex'),
     );
     expect(savedTokens[0]?.tokenHash).not.toBe(result.refreshToken);
+    expect(savedTokens[0]?.expiresAt?.getTime()).toBeGreaterThanOrEqual(
+      Date.now() + 90 * 24 * 60 * 60 * 1_000 - 100,
+    );
+    expect(savedTokens[0]?.expiresAt?.getTime()).toBeLessThanOrEqual(
+      Date.now() + 90 * 24 * 60 * 60 * 1_000 + 100,
+    );
   });
 
   it('rotates a refresh token and records the replacement', async () => {
     const oldRefreshToken = 'old-refresh-token';
     const currentToken = createRefreshTokenRecord(oldRefreshToken);
-    const transactionRepositories = createTransactionRepositories(
-      currentToken,
-    );
+    const transactionRepositories = createTransactionRepositories(currentToken);
     const service = createService({
       manager: {
         transaction: vi.fn(
-          async (
-            callback: (manager: EntityManager) => Promise<unknown>,
-          ) => callback(transactionRepositories.manager),
+          async (callback: (manager: EntityManager) => Promise<unknown>) =>
+            callback(transactionRepositories.manager),
         ),
       },
     });
@@ -71,9 +74,7 @@ describe('TokenService', () => {
     expect(result.refreshToken).not.toBe(oldRefreshToken);
     expect(currentToken.revokedAt).toBeInstanceOf(Date);
     expect(currentToken.replacedByTokenId).toBe('replacement-id');
-    expect(transactionRepositories.refreshTokens.save).toHaveBeenCalledTimes(
-      2,
-    );
+    expect(transactionRepositories.refreshTokens.save).toHaveBeenCalledTimes(2);
   });
 
   it('revokes the active token family if a rotated token is reused', async () => {
@@ -81,15 +82,12 @@ describe('TokenService', () => {
       'already-used-token',
       new Date(),
     );
-    const transactionRepositories = createTransactionRepositories(
-      currentToken,
-    );
+    const transactionRepositories = createTransactionRepositories(currentToken);
     const service = createService({
       manager: {
         transaction: vi.fn(
-          async (
-            callback: (manager: EntityManager) => Promise<unknown>,
-          ) => callback(transactionRepositories.manager),
+          async (callback: (manager: EntityManager) => Promise<unknown>) =>
+            callback(transactionRepositories.manager),
         ),
       },
     });
@@ -100,11 +98,41 @@ describe('TokenService', () => {
     expect(transactionRepositories.refreshTokens.update).toHaveBeenCalled();
   });
 
+  it('revokes refresh tokens using only their hash', async () => {
+    const refreshTokenRepository = { update: vi.fn() };
+    const service = createService(refreshTokenRepository);
+    const rawToken = 'logout-refresh-token';
+
+    await service.revokeRefreshToken(rawToken);
+
+    expect(refreshTokenRepository.update).toHaveBeenCalledWith(
+      {
+        tokenHash: createHash('sha256').update(rawToken).digest('hex'),
+        revokedAt: expect.anything(),
+      },
+      { revokedAt: expect.any(Date) },
+    );
+  });
+
+  it('revokes all active refresh tokens for a user', async () => {
+    const refreshTokenRepository = { update: vi.fn() };
+    const service = createService(refreshTokenRepository);
+
+    await service.revokeAllUserTokens(user.id);
+
+    expect(refreshTokenRepository.update).toHaveBeenCalledWith(
+      {
+        userId: user.id,
+        revokedAt: expect.anything(),
+      },
+      { revokedAt: expect.any(Date) },
+    );
+  });
+
   function createService(refreshRepository: object): TokenService {
     return new TokenService(
       jwtService as unknown as JwtService,
       refreshRepository as Repository<RefreshTokenEntity>,
-      {} as Repository<UserEntity>,
     );
   }
 
@@ -124,9 +152,7 @@ describe('TokenService', () => {
     };
   }
 
-  function createTransactionRepositories(
-    currentToken: RefreshTokenEntity,
-  ): {
+  function createTransactionRepositories(currentToken: RefreshTokenEntity): {
     manager: EntityManager;
     refreshTokens: {
       findOne: ReturnType<typeof vi.fn>;
@@ -147,9 +173,11 @@ describe('TokenService', () => {
     const users = {
       findOne: vi.fn().mockResolvedValue(user),
     };
+    const repositories = [refreshTokens, users];
+    let repositoryIndex = 0;
     const manager = {
-      getRepository: vi.fn((entity: typeof RefreshTokenEntity | typeof UserEntity) =>
-        entity === RefreshTokenEntity ? refreshTokens : users,
+      getRepository: vi.fn(
+        () => repositories[repositoryIndex++] ?? refreshTokens,
       ),
     };
 

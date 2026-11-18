@@ -34,7 +34,7 @@ function getDatabaseOptions(): TypeOrmModuleOptions {
     password: process.env.DB_PASSWORD,
     database: process.env.DB_DATABASE,
     autoLoadEntities: true,
-    synchronize: process.env.DB_SYNCHRONIZE === 'true',
+    synchronize: false,
   };
 }
 
